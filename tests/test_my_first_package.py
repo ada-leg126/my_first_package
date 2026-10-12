@@ -1,4 +1,13 @@
-"""Unit tests for array, matrix, and statistical NumPy operations."""
+"""Contract tests for NumPy-backed array, matrix, and statistical operations.
+
+The package API is expected to preserve NumPy semantics:
+- element-wise and matrix operations support NumPy broadcasting;
+- incompatible broadcast shapes raise ``ValueError``;
+- operations return new results and do not mutate their inputs;
+- statistics use NumPy defaults, including population standard deviation
+  (``ddof=0``), propagation of ``NaN``, and ``NaN`` with ``RuntimeWarning``
+  for empty inputs.
+"""
 
 import numpy as np
 import pytest
@@ -18,162 +27,218 @@ from my_first_package.statistics.statistics import (
 )
 
 
-class TestArrayOperations:
-    """Tests for element-wise array operations."""
+@pytest.mark.parametrize(
+    ("operation", "left", "right", "expected"),
+    [
+        (
+            elementwise_multiplication,
+            np.array([1, 2, 3]),
+            np.array([4, 5, 6]),
+            np.array([4, 10, 18]),
+        ),
+        (
+            elementwise_multiplication,
+            np.array([[-2, 0], [3, -4]]),
+            np.array([10, 20]),
+            np.array([[-20, 0], [30, -80]]),
+        ),
+        (
+            elementwise_division,
+            np.array([8, 10, 12]),
+            np.array([2, 5, 3]),
+            np.array([4.0, 2.0, 4.0]),
+        ),
+        (
+            elementwise_division,
+            np.array([[2.0, 4.0], [6.0, 8.0]]),
+            np.array([2.0, 4.0]),
+            np.array([[1.0, 1.0], [3.0, 2.0]]),
+        ),
+    ],
+)
+def test_elementwise_operations_match_expected_values(
+    operation, left, right, expected
+):
+    """Element-wise operations produce the expected values and shape."""
+    result = operation(left, right)
 
-    def test_elementwise_multiplication(self):
-        array_a = np.array([1, 2, 3])
-        array_b = np.array([4, 5, 6])
-
-        result = elementwise_multiplication(array_a, array_b)
-
-        np.testing.assert_array_equal(result, np.array([4, 10, 18]))
-
-    def test_multiplication_with_broadcasting(self):
-        array_a = np.array([[1, 2], [3, 4]])
-        array_b = np.array([10, 20])
-
-        result = elementwise_multiplication(array_a, array_b)
-
-        np.testing.assert_array_equal(result, np.array([[10, 40], [30, 80]]))
-
-    def test_multiplication_with_zero_and_negative_values(self):
-        result = elementwise_multiplication(
-            np.array([-2, 0, 3]), np.array([4, -5, 0])
-        )
-
-        np.testing.assert_array_equal(result, np.array([-8, 0, 0]))
-
-    def test_multiplication_with_incompatible_shapes(self):
-        with pytest.raises(ValueError):
-            elementwise_multiplication(np.ones((2, 2)), np.ones(3))
-
-    def test_elementwise_division(self):
-        result = elementwise_division(
-            np.array([8, 10, 12]), np.array([2, 5, 3])
-        )
-
-        np.testing.assert_allclose(result, np.array([4.0, 2.0, 4.0]))
-
-    def test_division_by_zero(self):
-        with pytest.warns(RuntimeWarning):
-            result = elementwise_division(
-                np.array([1.0, 0.0, -1.0]), np.array([0.0, 0.0, 0.0])
-            )
-
-        assert np.isposinf(result[0])
-        assert np.isnan(result[1])
-        assert np.isneginf(result[2])
-
-    def test_division_with_incompatible_shapes(self):
-        with pytest.raises(ValueError):
-            elementwise_division(np.ones((2, 2)), np.ones(3))
+    np.testing.assert_allclose(result, expected)
+    assert result.shape == expected.shape
 
 
-class TestMatrixOperations:
-    """Tests for matrix addition and subtraction."""
-
-    def test_matrix_addition(self):
-        matrix_a = np.array([[1, 2], [3, 4]])
-        matrix_b = np.array([[5, 6], [7, 8]])
-
-        result = matrix_addition(matrix_a, matrix_b)
-
-        np.testing.assert_array_equal(result, np.array([[6, 8], [10, 12]]))
-
-    def test_matrix_subtraction(self):
-        matrix_a = np.array([[5, 6], [7, 8]])
-        matrix_b = np.array([[1, 2], [3, 4]])
-
-        result = matrix_subtraction(matrix_a, matrix_b)
-
-        np.testing.assert_array_equal(result, np.array([[4, 4], [4, 4]]))
-
-    def test_matrix_operations_with_negative_values(self):
-        matrix_a = np.array([[-1, 0], [2, -3]])
-        matrix_b = np.array([[4, -5], [-2, 3]])
-
-        np.testing.assert_array_equal(
-            matrix_addition(matrix_a, matrix_b), np.array([[3, -5], [0, 0]])
-        )
-        np.testing.assert_array_equal(
-            matrix_subtraction(matrix_a, matrix_b), np.array([[-5, 5], [4, -6]])
-        )
-
-    @pytest.mark.parametrize("operation", [matrix_addition, matrix_subtraction])
-    def test_matrix_operations_with_incompatible_shapes(self, operation):
-        with pytest.raises(ValueError):
-            operation(np.ones((2, 2)), np.ones((2, 3)))
-
-    def test_matrix_operations_with_empty_matrices(self):
-        matrix_a = np.empty((0, 2))
-        matrix_b = np.empty((0, 2))
-
-        np.testing.assert_array_equal(matrix_addition(matrix_a, matrix_b), matrix_a)
-        np.testing.assert_array_equal(
-            matrix_subtraction(matrix_a, matrix_b), matrix_a
-        )
+@pytest.mark.parametrize(
+    "operation",
+    [elementwise_multiplication, elementwise_division],
+)
+def test_elementwise_operations_reject_incompatible_broadcast_shapes(operation):
+    with pytest.raises(ValueError):
+        operation(np.ones((2, 2)), np.ones(3))
 
 
-class TestStatisticsOperations:
-    """Tests for mean, median, and standard deviation."""
+@pytest.mark.parametrize(
+    ("operation", "left", "right"),
+    [
+        (
+            elementwise_multiplication,
+            np.array([1, 2, 3]),
+            np.array([4, 5, 6]),
+        ),
+        (
+            elementwise_division,
+            np.array([8.0, 10.0, 12.0]),
+            np.array([2.0, 5.0, 3.0]),
+        ),
+    ],
+)
+def test_elementwise_operations_do_not_mutate_inputs(operation, left, right):
+    left_before = left.copy()
+    right_before = right.copy()
 
-    def test_statistics_for_even_sized_array(self):
-        values = np.array([1, 2, 3, 4])
+    operation(left, right)
 
-        assert array_mean(values) == pytest.approx(2.5)
-        assert array_median(values) == pytest.approx(2.5)
-        assert array_standard_deviation(values) == pytest.approx(
-            np.std(values)
-        )
+    np.testing.assert_array_equal(left, left_before)
+    np.testing.assert_array_equal(right, right_before)
 
-    def test_statistics_for_odd_sized_array(self):
-        values = np.array([7, 1, 5])
 
-        assert array_mean(values) == pytest.approx(13 / 3)
-        assert array_median(values) == pytest.approx(5)
+def test_division_by_zero_matches_numpy_semantics():
+    """Floating-point division by zero warns and yields infinities/NaN."""
+    numerator = np.array([1.0, 0.0, -1.0])
+    denominator = np.zeros(3)
 
-    def test_statistics_with_negative_and_float_values(self):
-        values = np.array([-2.5, 0.0, 2.5])
+    with pytest.warns(RuntimeWarning):
+        result = elementwise_division(numerator, denominator)
 
-        assert array_mean(values) == pytest.approx(0.0)
-        assert array_median(values) == pytest.approx(0.0)
-        assert array_standard_deviation(values) == pytest.approx(
-            np.sqrt(25 / 6)
-        )
+    np.testing.assert_array_equal(
+        np.isposinf(result), np.array([True, False, False])
+    )
+    np.testing.assert_array_equal(
+        np.isnan(result), np.array([False, True, False])
+    )
+    np.testing.assert_array_equal(
+        np.isneginf(result), np.array([False, False, True])
+    )
 
-    def test_statistics_for_single_value(self):
-        values = np.array([42])
 
-        assert array_mean(values) == pytest.approx(42)
-        assert array_median(values) == pytest.approx(42)
-        assert array_standard_deviation(values) == pytest.approx(0)
+@pytest.mark.parametrize(
+    ("operation", "left", "right", "expected"),
+    [
+        (
+            matrix_addition,
+            np.array([[1, 2], [3, 4]]),
+            np.array([[5, 6], [7, 8]]),
+            np.array([[6, 8], [10, 12]]),
+        ),
+        (
+            matrix_subtraction,
+            np.array([[5, 6], [7, 8]]),
+            np.array([[1, 2], [3, 4]]),
+            np.array([[4, 4], [4, 4]]),
+        ),
+        (
+            matrix_addition,
+            np.array([[-1, 0], [2, -3]]),
+            np.array([4, -5]),
+            np.array([[3, -5], [6, -8]]),
+        ),
+        (
+            matrix_subtraction,
+            np.array([[-1, 0], [2, -3]]),
+            np.array([4, -5]),
+            np.array([[-5, 5], [-2, 2]]),
+        ),
+    ],
+)
+def test_matrix_operations_support_numpy_broadcasting(
+    operation, left, right, expected
+):
+    result = operation(left, right)
 
-    def test_statistics_for_constant_values(self):
-        values = np.full(5, 7)
+    np.testing.assert_array_equal(result, expected)
 
-        assert array_mean(values) == pytest.approx(7)
-        assert array_median(values) == pytest.approx(7)
-        assert array_standard_deviation(values) == pytest.approx(0)
 
-    def test_statistics_for_empty_array(self):
-        values = np.array([])
+@pytest.mark.parametrize("operation", [matrix_addition, matrix_subtraction])
+def test_matrix_operations_reject_incompatible_broadcast_shapes(operation):
+    with pytest.raises(ValueError):
+        operation(np.ones((2, 2)), np.ones((2, 3)))
 
-        with pytest.warns(RuntimeWarning):
-            mean = array_mean(values)
-        with pytest.warns(RuntimeWarning):
-            median = array_median(values)
-        with pytest.warns(RuntimeWarning):
-            standard_deviation = array_standard_deviation(values)
 
-        assert np.isnan(mean)
-        assert np.isnan(median)
-        assert np.isnan(standard_deviation)
+@pytest.mark.parametrize("operation", [matrix_addition, matrix_subtraction])
+def test_matrix_operations_support_empty_matrices(operation):
+    left = np.empty((0, 2))
+    right = np.empty((0, 2))
 
-    def test_statistics_ignore_no_values_only_if_explicitly_supported(self):
-        """Document current behavior: NaN values propagate through NumPy."""
-        values = np.array([1.0, np.nan, 3.0])
+    result = operation(left, right)
 
-        assert np.isnan(array_mean(values))
-        assert np.isnan(array_median(values))
-        assert np.isnan(array_standard_deviation(values))
+    np.testing.assert_array_equal(result, left)
+    assert result.shape == (0, 2)
+
+
+@pytest.mark.parametrize(
+    ("operation", "left", "right"),
+    [
+        (
+            matrix_addition,
+            np.array([[1, 2], [3, 4]]),
+            np.array([[5, 6], [7, 8]]),
+        ),
+        (
+            matrix_subtraction,
+            np.array([[5, 6], [7, 8]]),
+            np.array([[1, 2], [3, 4]]),
+        ),
+    ],
+)
+def test_matrix_operations_do_not_mutate_inputs(operation, left, right):
+    left_before = left.copy()
+    right_before = right.copy()
+
+    operation(left, right)
+
+    np.testing.assert_array_equal(left, left_before)
+    np.testing.assert_array_equal(right, right_before)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        np.array([1, 2, 3, 4]),
+        np.array([7, 1, 5]),
+        np.array([-2.5, 0.0, 2.5]),
+        np.array([42]),
+        np.full(5, 7),
+    ],
+)
+def test_statistics_match_numpy_defaults(values):
+    """Statistics use NumPy's mean, median, and population std deviation."""
+    assert array_mean(values) == pytest.approx(np.mean(values))
+    assert array_median(values) == pytest.approx(np.median(values))
+    assert array_standard_deviation(values) == pytest.approx(np.std(values))
+
+
+def test_standard_deviation_uses_population_default():
+    """Guard against changing from NumPy's ``ddof=0`` to sample std deviation."""
+    values = np.array([-2.5, 0.0, 2.5])
+
+    assert array_standard_deviation(values) == pytest.approx(np.sqrt(25 / 6))
+    assert array_standard_deviation(values) != pytest.approx(np.std(values, ddof=1))
+
+
+@pytest.mark.parametrize(
+    "statistic",
+    [array_mean, array_median, array_standard_deviation],
+)
+def test_statistics_for_empty_arrays_warn_and_return_nan(statistic):
+    with pytest.warns(RuntimeWarning):
+        result = statistic(np.array([]))
+
+    assert np.isnan(result)
+
+
+@pytest.mark.parametrize(
+    "statistic",
+    [array_mean, array_median, array_standard_deviation],
+)
+def test_statistics_propagate_nan(statistic):
+    result = statistic(np.array([1.0, np.nan, 3.0]))
+
+    assert np.isnan(result)
